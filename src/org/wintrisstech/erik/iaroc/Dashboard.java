@@ -3,266 +3,217 @@ package org.wintrisstech.erik.iaroc;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.media.MediaPlayer;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.speech.tts.TextToSpeech;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import ioio.lib.api.DigitalInput;
+import ioio.lib.api.DigitalOutput;
 import ioio.lib.api.IOIO;
+import ioio.lib.api.PulseInput;
+import ioio.lib.api.PwmOutput;
 import ioio.lib.api.exception.ConnectionLostException;
 import ioio.lib.util.IOIOLooper;
 import ioio.lib.util.android.IOIOActivity;
-import java.util.Locale;
-import org.wintrisstech.vw.SimpleVicswagen;
-import org.wintrisstech.vw.VicswagenInterface;
+import java.net.URL;
 
 /**
  * This is the main activity of the iRobot2012 application.
- * 
+ *
  * <p>
  * This class assumes that there are 4 ultrasonic sensors attached to the robot.
  * An instance of the Dashboard class will display the readings of these 4
  * sensors.
- * 
+ *
  * <p>
  * There should be no need to modify this class. Modify VW_Prototype instead.
- * 
+ *
  * @author Erik Colban
- * 
+ *
  */
-public class Dashboard extends IOIOActivity implements
-		TextToSpeech.OnInitListener, SensorEventListener {
+public class Dashboard extends IOIOActivity
+{
 
-	/**
-	 * Tag used for debugging.
-	 */
-	private static final String TAG = "Dashboard";
-	/**
-	 * Text view that contains all logged messages
-	 */
-	private TextView mText;
-	private ScrollView scroller;
-	/**
-	 * A VW_Prototype instance
-	 */
-	private VW_Prototype stuntman;
-	/**
-	 * TTS stuff
-	 */
-	protected static final int MY_DATA_CHECK_CODE = 33;
-	private TextToSpeech mTts;
-	/**
-	 * Compass stuff
-	 */
-	SensorManager sensorManager;
-	private Sensor sensorAccelerometer;
-	private Sensor sensorMagneticField;
+    private TextView mText;
+    private ScrollView scroller;
+    private int frontDistance;
+    private int rearDistance;
+    private int leftDistance;
+    private int rightDistance;
+    private PwmOutput rightMotorClock;
+    private PwmOutput leftMotorClock;
+    private int pulseWidth = 10;//microseconds
+    private PulseInput front;
+    private PulseInput rear;
+    private PulseInput left;
+    private PulseInput right;
+    private DigitalOutput rightMotorClockPulse;
+    private DigitalOutput leftMotorClockPulse;
+    private DigitalOutput frontStrobe;
+    private DigitalOutput rearStrobe;
+    private DigitalOutput leftStrobe;
+    private DigitalOutput rightStrobe;
+    private DigitalOutput rightMotorDirection;
+    private DigitalOutput leftMotorDirection;
+    private DigitalOutput halfFull;
+    private DigitalOutput motorEnable; // Must be true for motors to run.
+    private DigitalOutput reset; // Must be true for motors to run.
+    private DigitalOutput control;//Decay mode selector high = slow, low = fast.
+    private DigitalOutput motorControllerControl;// Decay mode selector, high = slow decay, low = fast decay
+    private static final int MOTOR_ENABLE_PIN = 3;//Low turns off all power to motors***
+    private static final int MOTOR_RIGHT_DIRECTION_OUTPUT_PIN = 20;//High = clockwise, low = counter-clockwise
+    private static final int MOTOR_LEFT_DIRECTION_OUTPUT_PIN = 21;
+    private static final int MOTOR_CONTROLLER_CONTROL_PIN = 6;// For both motors //pin 1 for original wagon***
+    private static final int REAR_STROBE_ULTRASONIC_OUTPUT_PIN = 14;//pin 15 for original wagon (output from ioio)
+    private static final int FRONT_STROBE_ULTRASONIC_OUTPUT_PIN = 16;
+    private static final int LEFT_STROBE_ULTRASONIC_OUTPUT_PIN = 17;
+    private static final int RIGHT_STROBE_ULTRASONIC_OUTPUT_PIN = 15;
+    private static final int FRONT_ULTRASONIC_INPUT_PIN = 12;
+    private static final int REAR_ULTRASONIC_INPUT_PIN = 10;//pin 6 for original wagon (input to ioio)//pin 23 on Bill's board...wrong...must be changed
+    private static final int RIGHT_ULTRASONIC_INPUT_PIN = 11;
+    private static final int LEFT_ULTRASONIC_INPUT_PIN = 13;
+    private static final int MOTOR_HALF_FULL_STEP_PIN = 7;//For both motors//pin 8 for original wagon***
+    private static final int MOTOR_RESET = 22;//For both motors
+    private static final int MOTOR_CLOCK_LEFT_PIN = 27;
+    private static final int MOTOR_CLOCK_RIGHT_PIN = 28;
+    private int leftMotorPWMfrequency = 100;
+    private int rightMotorPWMfrequency = 100;
+    URL soundFileAddress;
 
-	private float[] valuesAccelerometer;
-	private float[] valuesMagneticField;
+    @Override
+    public void onCreate(Bundle savedInstanceState)
+    {
+        super.onCreate(savedInstanceState);
+        /*
+         * Since the android device is carried by the iRobot Create, we want to
+         * prevent a change of orientation, which would cause the activity to
+         * pause.
+         */
+        this.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        // getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        setContentView(R.layout.main);
 
-	private float[] matrixR;
-	private float[] matrixI;
-	private float[] matrixValues;
-	private double azimuth;
-	private double pitch;
-	private double roll;
+        mText = (TextView) findViewById(R.id.text);
+        scroller = (ScrollView) findViewById(R.id.scroller);
+        log(getString(R.string.wait_ioio));
+    }
 
-	@Override
-	public void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
-		/*
-		 * Since the android device is carried by the iRobot Create, we want to
-		 * prevent a change of orientation, which would cause the activity to
-		 * pause.
-		 */
-		this.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-		// getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-		setContentView(R.layout.main);
+    @Override
+    public void onPause()
+    {
+        log("Pausing");
+        log("=================> VicsWagon version 9.90");
+        super.onPause();
+    }
 
-		Intent checkIntent = new Intent();
-		checkIntent.setAction(TextToSpeech.Engine.ACTION_CHECK_TTS_DATA);
-		startActivityForResult(checkIntent, MY_DATA_CHECK_CODE);
+    @Override
+    protected void onResume()
+    {
+        super.onResume();
+    }
 
-		// Compass stuff
-		sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
-		sensorAccelerometer = sensorManager
-				.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-		sensorMagneticField = sensorManager
-				.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+    public void onInit(int arg0)
+    {
+        log("in init");
+    }
 
-		valuesAccelerometer = new float[3];
-		valuesMagneticField = new float[3];
+    @Override
+    public IOIOLooper createIOIOLooper()
+    {
+        return new IOIOLooper()
+        {
+            public void setup(IOIO ioio) throws ConnectionLostException,
+                    InterruptedException
+            {
+                log("in setup");
+                /*
+                 * When the setup() method is called the IOIO is connected.
+                 */
+                log(getString(R.string.ioio_connected));
 
-		matrixR = new float[9];
-		matrixI = new float[9];
-		matrixValues = new float[3];
+                /*
+                 * Establish communication between the android and the iRobot
+                 * Create through the IOIO board.
+                 */
+                log(getString(R.string.wait_create));
+                log(getString(R.string.create_connected));
 
-		mText = (TextView) findViewById(R.id.text);
-		scroller = (ScrollView) findViewById(R.id.scroller);
-		log(getString(R.string.wait_ioio));
+//                reset = ioio.openDigitalOutput(MOTOR_RESET);//both motors
+//                reset.write(false);
+//                reset.write(true);
+//
+//                motorControllerControl = ioio.openDigitalOutput(MOTOR_CONTROLLER_CONTROL_PIN);
+//                motorControllerControl.write(true);//Slow decay
+//
+//                halfFull = ioio.openDigitalOutput(MOTOR_HALF_FULL_STEP_PIN);//both motors
+//                halfFull.write(true);//True = half step
+//
+//                rightMotorDirection = ioio.openDigitalOutput(MOTOR_RIGHT_DIRECTION_OUTPUT_PIN);
+//                rightMotorDirection.write(true);
+//
+//                leftMotorDirection = ioio.openDigitalOutput(MOTOR_LEFT_DIRECTION_OUTPUT_PIN);
+//                leftMotorDirection.write(false);
+//
+//                motorEnable = ioio.openDigitalOutput(MOTOR_ENABLE_PIN);//both motors
+//                motorEnable.write(true);
 
-	}
+//                    rearStrobe = ioio.openDigitalOutput(REAR_STROBE_ULTRASONIC_OUTPUT_PIN, false);
+//                    rear = ioio.openPulseInput(new DigitalInput.Spec(REAR_ULTRASONIC_INPUT_PIN), PulseInput.ClockRate.RATE_62KHz,PulseInput.PulseMode.POSITIVE, false);
+////                    
+//                    frontStrobe = ioio.openDigitalOutput(FRONT_STROBE_ULTRASONIC_OUTPUT_PIN, false);
+//                    front = ioio.openPulseInput(new DigitalInput.Spec(FRONT_ULTRASONIC_INPUT_PIN), PulseInput.ClockRate.RATE_62KHz, PulseInput.PulseMode.POSITIVE, false);
+//////
+//                    leftStrobe = ioio.openDigitalOutput(LEFT_STROBE_ULTRASONIC_OUTPUT_PIN, false);
+//                    left = ioio.openPulseInput(new DigitalInput.Spec(LEFT_ULTRASONIC_INPUT_PIN), PulseInput.ClockRate.RATE_62KHz, PulseInput.PulseMode.POSITIVE, true);
+//
+//                    rightStrobe = ioio.openDigitalOutput(RIGHT_STROBE_ULTRASONIC_OUTPUT_PIN, false);
+//                    right = ioio.openPulseInput(new DigitalInput.Spec(RIGHT_ULTRASONIC_INPUT_PIN), PulseInput.ClockRate.RATE_62KHz, PulseInput.PulseMode.POSITIVE, true);
 
-	@Override
-	public void onPause() {
-		if (stuntman != null) {
-			log("Pausing");
-		}
-		sensorManager.unregisterListener(this, sensorAccelerometer);
-		sensorManager.unregisterListener(this, sensorMagneticField);
-		super.onPause();
-	}
-	
-	@Override
-	protected void onResume() {
+//                rightMotorClock = ioio.openPwmOutput(MOTOR_CLOCK_RIGHT_PIN, rightMotorPWMfrequency);//pin #, frequency right motor// pin 10 on original wagon...right
+//                leftMotorClock = ioio.openPwmOutput(MOTOR_CLOCK_LEFT_PIN, leftMotorPWMfrequency);//pin #, frequency right motor// pin 10 on original wagon...right
+//                rightMotorClock.setPulseWidth(pulseWidth);
+//                leftMotorClock.setPulseWidth(pulseWidth);
+//             MediaPlayer mp_file = MediaPlayer.create(this, R.raw.your_song_file);
+//             mp_file.start();
+            }
 
-		sensorManager.registerListener(this, sensorAccelerometer,
-				SensorManager.SENSOR_DELAY_NORMAL);
-		sensorManager.registerListener(this, sensorMagneticField,
-				SensorManager.SENSOR_DELAY_NORMAL);
-		super.onResume();
-	}
+            public void loop() throws ConnectionLostException,
+                    InterruptedException
+            {
+                SystemClock.sleep(1000);
+                log("in loop");
+            }
 
-	@Override
-	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-		if (requestCode == MY_DATA_CHECK_CODE) {
-			if (resultCode == TextToSpeech.Engine.CHECK_VOICE_DATA_PASS) {
-				// success, create the TTS instance
-				mTts = new TextToSpeech(this, this);
-			} else {
-				// missing data, install it
-				Intent installIntent = new Intent();
-				installIntent
-						.setAction(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA);
-				startActivity(installIntent);
-			}
-		}
-	}
+            public void disconnected()
+            {
+                log(getString(R.string.ioio_disconnected));
+            }
 
-	public void onInit(int arg0) {
-	}
+            public void incompatible()
+            {
+            }
+        };
+    }
 
-	public void speak(String stuffToSay) {
-		mTts.setLanguage(Locale.US);
-		if (!mTts.isSpeaking()) {
-			mTts.speak(stuffToSay, TextToSpeech.QUEUE_FLUSH, null);
-		}
-	}
-
-	@Override
-	public void onAccuracyChanged(Sensor arg0, int arg1) {
-		// TODO Auto-generated method stub
-
-	}
-
-	@Override
-	public void onSensorChanged(SensorEvent event) {
-		switch (event.sensor.getType()) {
-		case Sensor.TYPE_ACCELEROMETER:
-			for (int i = 0; i < 3; i++) {
-				valuesAccelerometer[i] = event.values[i];
-			}
-			break;
-		case Sensor.TYPE_MAGNETIC_FIELD:
-			for (int i = 0; i < 3; i++) {
-				valuesMagneticField[i] = event.values[i];
-			}
-			break;
-		}
-
-		boolean success = SensorManager.getRotationMatrix(matrixR, matrixI,
-				valuesAccelerometer, valuesMagneticField);
-
-		if (success) {
-			SensorManager.getOrientation(matrixR, matrixValues);
-			synchronized (this) {
-				azimuth = Math.toDegrees(matrixValues[0]);
-				pitch = Math.toDegrees(matrixValues[1]);
-				roll = Math.toDegrees(matrixValues[2]);
-			}
-		}
-
-	}
-
-	/**
-	 * Gets the azimuth
-	 * @return the azimuth
-	 */
-	public synchronized double getAzimuth() {
-		return azimuth;
-	}
-	
-	/**
-	 * Gets the pitch
-	 * @return the pitch
-	 */
-	public synchronized double getPitch() {
-		return pitch;
-	}
-
-	/**
-	 */
-	public synchronized double getRoll() {
-		return roll;
-	}
-	
-	@Override
-	public IOIOLooper createIOIOLooper() {
-		return new IOIOLooper() {
-
-			public void setup(IOIO ioio) throws ConnectionLostException,
-					InterruptedException {
-				/*
-				 * When the setup() method is called the IOIO is connected.
-				 */
-				log(getString(R.string.ioio_connected));
-
-				/*
-				 * Establish communication between the android and the iRobot
-				 * Create through the IOIO board.
-				 */
-				log(getString(R.string.wait_create));
-				VicswagenInterface vicswagen = new SimpleVicswagen(ioio);
-				log(getString(R.string.create_connected));
-
-				/*
-				 * Get a VW_Prototype and let it go...
-				 */
-				stuntman = new VW_Prototype(vicswagen, Dashboard.this);
-				stuntman.initialize();
-			}
-
-			public void loop() throws ConnectionLostException,
-					InterruptedException {
-				stuntman.loop();
-			}
-
-			public void disconnected() {
-				log(getString(R.string.ioio_disconnected));
-			}
-
-			public void incompatible() {
-			}
-		};
-	}
-
-	/**
-	 * Writes a message to the Dashboard instance.
-	 * 
-	 * @param msg
-	 *            the message to write
-	 */
-	public void log(final String msg) {
-		runOnUiThread(new Runnable() {
-
-			public void run() {
-				mText.append(msg);
-				mText.append("\n");
-				scroller.smoothScrollTo(0, mText.getBottom());
-			}
-		});
-	}
+    /**
+     * Writes a message to the Dashboard instance.
+     *
+     * @param msg the message to write
+     */
+    public void log(final String msg)
+    {
+        runOnUiThread(new Runnable()
+        {
+            public void run()
+            {
+                mText.append(msg);
+                mText.append("\n");
+                scroller.smoothScrollTo(0, mText.getBottom());
+            }
+        });
+    }
 }
