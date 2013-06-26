@@ -126,8 +126,7 @@ public class Dashboard extends IOIOActivity
     {
         return new IOIOLooper()
         {
-            public void setup(IOIO ioio) throws ConnectionLostException,
-                    InterruptedException
+            public void setup(IOIO ioio) throws ConnectionLostException, InterruptedException
             {
                 log("in setup");
                 /*
@@ -179,10 +178,25 @@ public class Dashboard extends IOIOActivity
 //                leftMotorClock.setPulseWidth(pulseWidth);
 //             MediaPlayer mp_file = MediaPlayer.create(this, R.raw.your_song_file);
 //             mp_file.start();
+
+                MediaPlayer mediaPlayer = null;
+
+                try
+                {
+                    mediaPlayer = MediaPlayer.create(getApplicationContext(), R.raw.hotrod);
+                    mediaPlayer.start();
+                }
+                finally
+                {
+                    if (mediaPlayer != null)
+                    {
+                        mediaPlayer.release();
+                        mediaPlayer = null;
+                    }
+                }
             }
 
-            public void loop() throws ConnectionLostException,
-                    InterruptedException
+            public void loop() throws ConnectionLostException, InterruptedException
             {
                 SystemClock.sleep(1000);
                 log("in loop");
