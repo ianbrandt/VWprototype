@@ -4,8 +4,7 @@
 	<classpathentry kind="src" path="gen"/>
 	<classpathentry kind="con" path="com.android.ide.eclipse.adt.ANDROID_FRAMEWORK"/>
 	<classpathentry kind="con" path="com.android.ide.eclipse.adt.LIBRARIES"/>
-	<classpathentry kind="lib" path="/Users/ecolban/Javalib/ioiolib.jar"/>
+	<classpathentry kind="lib" path="/Users/ibrandt/Development/git/IOIOLib/bin/ioiolib.jar"/>
 	<classpathentry exported="true" kind="con" path="com.android.ide.eclipse.adt.DEPENDENCIES"/>
-	<classpathentry kind="lib" path="/Users/ecolban/Javalib/vw_adapter.jar"/>
 	<classpathentry kind="output" path="bin/classes"/>
 </classpath>

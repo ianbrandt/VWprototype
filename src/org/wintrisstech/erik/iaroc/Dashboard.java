@@ -19,6 +19,8 @@ import ioio.lib.api.PwmOutput;
 import ioio.lib.api.exception.ConnectionLostException;
 import ioio.lib.util.IOIOLooper;
 import ioio.lib.util.android.IOIOActivity;
+
+import java.io.IOException;
 import java.net.URL;
 
 /**
@@ -179,27 +181,39 @@ public class Dashboard extends IOIOActivity
 //             MediaPlayer mp_file = MediaPlayer.create(this, R.raw.your_song_file);
 //             mp_file.start();
 
+            }
+
+            public void loop() throws ConnectionLostException, InterruptedException
+            {
+
+                log("in loop");
+                SystemClock.sleep(1000);
+                
                 MediaPlayer mediaPlayer = null;
 
                 try
                 {
                     mediaPlayer = MediaPlayer.create(getApplicationContext(), R.raw.hotrod);
+                    log("playing sound");
                     mediaPlayer.start();
+                    log("sleeping for 10s");
+                    SystemClock.sleep(10000);
+                    log("sleep finished");
+                }
+                catch (IllegalStateException e)
+                {
+                    log(e.getMessage());
                 }
                 finally
                 {
+                    log("in finally");
                     if (mediaPlayer != null)
                     {
                         mediaPlayer.release();
                         mediaPlayer = null;
                     }
                 }
-            }
 
-            public void loop() throws ConnectionLostException, InterruptedException
-            {
-                SystemClock.sleep(1000);
-                log("in loop");
             }
 
             public void disconnected()
